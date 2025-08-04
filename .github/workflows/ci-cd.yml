@@ -11,30 +11,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: ✅ Checkout code from GitHub
+    - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: ⚙️ Set up Node.js environment
+    - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '18'
 
-    - name: 📦 Install frontend dependencies
-      run: |
-        cd frontend
-        npm install
+    - name: Install dependencies
+      run: npm install
 
-    - name: 📦 Install backend dependencies
-      run: |
-        cd backend
-        npm install
-
-    - name: 🧪 Run frontend tests
-      run: |
-        cd frontend
-        npm test
-
-    - name: 🧪 Run backend tests
-      run: |
-        cd backend
-        npm test
+    - name: Run tests
+      run: npm test
