@@ -2,7 +2,6 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# Get Default VPC and Subnets
 data "aws_vpc" "default" {
   default = true
 }
@@ -14,12 +13,10 @@ data "aws_subnets" "default" {
   }
 }
 
-# Unique bucket suffix
 resource "random_id" "bucket_id" {
   byte_length = 4
 }
 
-# S3 Bucket for React Frontend Hosting
 resource "aws_s3_bucket" "frontend_bucket" {
   bucket = "ci-cd-react-bucket-${random_id.bucket_id.hex}"
 
@@ -30,13 +27,15 @@ resource "aws_s3_bucket" "frontend_bucket" {
   }
 }
 
-# S3 Bucket ACL (to allow public-read)
-resource "aws_s3_bucket_acl" "frontend_bucket_acl" {
+resource "aws_s3_bucket_public_access_block" "frontend_bucket_block" {
   bucket = aws_s3_bucket.frontend_bucket.id
-  acl    = "public-read"
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
 }
 
-# S3 Website Configuration
 resource "aws_s3_bucket_website_configuration" "frontend_bucket_website" {
   bucket = aws_s3_bucket.frontend_bucket.id
 
@@ -49,7 +48,6 @@ resource "aws_s3_bucket_website_configuration" "frontend_bucket_website" {
   }
 }
 
-# CloudFront Distribution
 resource "aws_cloudfront_distribution" "frontend_distribution" {
   origin {
     domain_name = aws_s3_bucket_website_configuration.frontend_bucket_website.website_endpoint
@@ -99,7 +97,6 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   }
 }
 
-# ECR Repositories
 resource "aws_ecr_repository" "frontend_repo" {
   name = "cicd-frontend"
 }
@@ -108,7 +105,6 @@ resource "aws_ecr_repository" "backend_repo" {
   name = "cicd-backend"
 }
 
-# IAM Role for EC2 to Pull from ECR
 resource "aws_iam_role" "ec2_role" {
   name = "ec2-ecr-access-role"
 
@@ -134,7 +130,6 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   role = aws_iam_role.ec2_role.name
 }
 
-# EC2 Security Group
 resource "aws_security_group" "ec2_sg" {
   name        = "ec2-cicd-sg"
   description = "Allow ports for CICD App"
@@ -186,7 +181,6 @@ resource "aws_security_group" "ec2_sg" {
   }
 }
 
-# Ubuntu 20.04 AMI
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"]
@@ -197,13 +191,12 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# EC2 Instance with Docker
 resource "aws_instance" "backend_instance" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = "t2.micro"
   key_name                    = "CICD"
   vpc_security_group_ids      = [aws_security_group.ec2_sg.id]
-  subnet_id                   = data.aws_subnets.default.ids[0] # Use default subnet
+  subnet_id                   = data.aws_subnets.default.ids[0]
   iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
   associate_public_ip_address = true
 
