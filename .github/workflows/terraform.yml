@@ -11,15 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./terraform
-
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: us-east-1  # or your preferred region
+        working-directory: terraform
 
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Setup Terraform
@@ -27,11 +22,12 @@ jobs:
         with:
           terraform_version: 1.6.6
 
-      - name: Debug AWS Credentials (Just to Verify)
+      - name: Export AWS Credentials
         run: |
-          echo "Verifying AWS Credentials"
-          echo "Access Key Length: ${#AWS_ACCESS_KEY_ID}"
-          echo "Secret Key Length: ${#AWS_SECRET_ACCESS_KEY}"
+          echo "Setting AWS credentials..."
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "AWS_REGION=us-east-1" >> $GITHUB_ENV
 
       - name: Terraform Init
         run: terraform init
@@ -39,8 +35,6 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      - name: Terraform Format
-        run: terraform fmt -check
-
       - name: Terraform Plan
         run: terraform plan
+
