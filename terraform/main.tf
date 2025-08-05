@@ -2,6 +2,18 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# Get Default VPC and Subnets
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
 # Unique bucket suffix
 resource "random_id" "bucket_id" {
   byte_length = 4
@@ -122,11 +134,6 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   role = aws_iam_role.ec2_role.name
 }
 
-# Get Default VPC
-data "aws_vpc" "default" {
-  default = true
-}
-
 # EC2 Security Group
 resource "aws_security_group" "ec2_sg" {
   name        = "ec2-cicd-sg"
@@ -182,7 +189,7 @@ resource "aws_security_group" "ec2_sg" {
 # Ubuntu 20.04 AMI
 data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical
+  owners      = ["099720109477"]
 
   filter {
     name   = "name"
@@ -196,6 +203,7 @@ resource "aws_instance" "backend_instance" {
   instance_type               = "t2.micro"
   key_name                    = "CICD"
   vpc_security_group_ids      = [aws_security_group.ec2_sg.id]
+  subnet_id                   = data.aws_subnets.default.ids[0] # Use default subnet
   iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
   associate_public_ip_address = true
 
