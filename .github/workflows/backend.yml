@@ -1,41 +1,66 @@
-name: CI/CD Pipeline for Backend
+name: Backend CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: cicd-backend
+  IMAGE_TAG: latest
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: us-east-1
+      # Authenticate with AWS
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Log in to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+      # Log in to Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-    - name: Build, tag, and push Docker image to ECR
-      run: |
-        cd backend
-        docker build -t cicd-backend .
-        docker tag cicd-backend:latest 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
-        docker push 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
+      # Build and push Docker image from backend/
+      - name: Build, Tag, and Push Docker Image to ECR
+        run: |
+          cd backend
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
 
-    - name: Deploy to EC2
-      run: |
-        echo "${{ secrets.EC2_SSH_KEY }}" > ec2-key.pem
-        chmod 400 ec2-key.pem
-        ssh -o StrictHostKeyChecking=no -i ec2-key.pem ubuntu@54.204.165.103 << 'EOF'
-          sudo docker rm -f backend || true
-          sudo docker pull 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
-          sudo docker run -d --name backend -p 3000:3000 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
-        EOF
+      # Deploy to EC2
+      - name: Deploy to EC2
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > ec2-key.pem
+          chmod 400 ec2-key.pem
+          ssh -o StrictHostKeyChecking=no -i ec2-key.pem ubuntu@54.204.165.103 << 'EOF'
+            # Kill process using port 3000 if exists
+            PORT_IN_USE=$(sudo lsof -t -i:3000)
+            if [ -n "$PORT_IN_USE" ]; then
+              echo "Port 3000 is in use. Stopping process $PORT_IN_USE"
+              sudo kill -9 $PORT_IN_USE
+            fi
+
+            # Remove existing backend container if any
+            sudo docker rm -f backend || true
+
+            # Pull latest image from ECR
+            sudo docker pull 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
+
+            # Run container
+            sudo docker run -d --name backend -p 3000:3000 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
+          EOF
