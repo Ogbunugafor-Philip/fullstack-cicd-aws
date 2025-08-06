@@ -40,22 +40,22 @@ jobs:
         echo "$EC2_SSH_KEY" > private_key.pem
         chmod 400 private_key.pem
 
-        ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@54.204.165.103 << EOF
-          # Kill existing container on port 3000
-          CONTAINER_ID=\$(sudo docker ps -q --filter "publish=3000")
-          if [ ! -z "\$CONTAINER_ID" ]; then
-            echo "Removing existing container on port 3000"
-            sudo docker rm -f \$CONTAINER_ID
+        ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@54.204.165.103 << 'EOF'
+          echo "🧹 Cleaning up previous deployments..."
+          # Stop and remove any container named 'backend'
+          if sudo docker ps -a --format '{{.Names}}' | grep -Eq '^backend$'; then
+            echo "Stopping and removing existing container named 'backend'..."
+            sudo docker rm -f backend
           fi
 
-          # Kill any leftover process on port 3000
+          # Kill any process using port 3000
           PID=\$(sudo lsof -t -i:3000)
           if [ ! -z "\$PID" ]; then
             echo "Killing process on port 3000: \$PID"
             sudo kill -9 \$PID
           fi
 
-          # Login to ECR and pull + run container
+          echo "📦 Pulling and Running Docker Container..."
           aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
           sudo docker pull ${{ steps.login-ecr.outputs.registry }}/cicd-backend:latest
           sudo docker run -d -p 3000:3000 --name backend ${{ steps.login-ecr.outputs.registry }}/cicd-backend:latest
