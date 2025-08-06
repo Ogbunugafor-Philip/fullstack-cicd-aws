@@ -3,11 +3,9 @@ name: Backend CI/CD Pipeline
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,26 +20,21 @@ jobs:
         aws-region: us-east-1
 
     - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+      run: |
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 808872802370.dkr.ecr.us-east-1.amazonaws.com
 
     - name: Build, Tag, and Push Docker Image to ECR
       run: |
-        docker build -t cicd-backend .
+        docker build -t cicd-backend ./backend
         docker tag cicd-backend:latest 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
         docker push 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
 
-    - name: Copy EC2 Private Key
+    - name: Deploy to EC2
       run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-
-    - name: SSH and Deploy Docker Container
-      run: |
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@54.204.165.103 << 'EOF'
-          sudo docker stop backend || true
-          sudo docker rm backend || true
-          sudo docker pull 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
-          sudo docker run -d --name backend -p 3000:3000 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
+        echo "${{ secrets.EC2_SSH_KEY }}" > ec2-key.pem
+        chmod 400 ec2-key.pem
+        ssh -o StrictHostKeyChecking=no -i ec2-key.pem ubuntu@54.204.165.103 << 'EOF'
+          docker rm -f backend || true
+          docker pull 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
+          docker run -d --name backend -p 3000:3000 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
         EOF
