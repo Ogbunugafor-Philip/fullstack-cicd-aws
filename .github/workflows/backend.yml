@@ -2,15 +2,11 @@ name: Backend CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
   pull_request:
-    branches:
-      - main
+    branches: [ "main" ]
 
 env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY: cicd-backend
   IMAGE_TAG: latest
 
 jobs:
@@ -18,49 +14,52 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
-      # Authenticate with AWS
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
 
-      # Log in to Amazon ECR
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+    - name: Log in to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
 
-      # Build and push Docker image from backend/
-      - name: Build, Tag, and Push Docker Image to ECR
-        run: |
-          cd backend
-          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REPOSITORY:$IMAGE_TAG ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
+    - name: Build, Tag, and Push Docker Image to ECR
+      run: |
+        cd backend
+        docker build -t cicd-backend .
+        docker tag cicd-backend:latest ${{ steps.login-ecr.outputs.registry }}/cicd-backend:latest
+        docker push ${{ steps.login-ecr.outputs.registry }}/cicd-backend:latest
 
-      # Deploy to EC2
-      - name: Deploy to EC2
-        run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" > ec2-key.pem
-          chmod 400 ec2-key.pem
-          ssh -o StrictHostKeyChecking=no -i ec2-key.pem ubuntu@54.204.165.103 << 'EOF'
-            # Kill process using port 3000 if exists
-            PORT_IN_USE=$(sudo lsof -t -i:3000)
-            if [ -n "$PORT_IN_USE" ]; then
-              echo "Port 3000 is in use. Stopping process $PORT_IN_USE"
-              sudo kill -9 $PORT_IN_USE
-            fi
+    - name: Deploy to EC2
+      run: |
+        echo "$EC2_SSH_KEY" > private_key.pem
+        chmod 400 private_key.pem
 
-            # Remove existing backend container if any
-            sudo docker rm -f backend || true
+        ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@54.204.165.103 << 'EOF'
+          # Remove container using port 3000
+          EXISTING_CONTAINER=$(sudo docker ps -q --filter "publish=3000")
+          if [ -n "$EXISTING_CONTAINER" ]; then
+            echo "Removing container using port 3000..."
+            sudo docker rm -f $EXISTING_CONTAINER
+          fi
 
-            # Pull latest image from ECR
-            sudo docker pull 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
+          # Kill any leftover process on port 3000
+          PORT_IN_USE=$(sudo lsof -t -i:3000)
+          if [ -n "$PORT_IN_USE" ]; then
+            echo "Killing leftover process on port 3000: $PORT_IN_USE"
+            sudo kill -9 $PORT_IN_USE
+          fi
 
-            # Run container
-            sudo docker run -d --name backend -p 3000:3000 808872802370.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest
-          EOF
+          # Pull latest image and run container
+          aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin ${AWS_ECR_URL}
+          sudo docker pull ${AWS_ECR_URL}/cicd-backend:latest
+          sudo docker run -d -p 3000:3000 --name backend ${AWS_ECR_URL}/cicd-backend:latest
+        EOF
+      env:
+        AWS_ECR_URL: ${{ steps.login-ecr.outputs.registry }}
+        EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
